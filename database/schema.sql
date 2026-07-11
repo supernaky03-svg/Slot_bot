@@ -25,6 +25,6 @@ CREATE TABLE IF NOT EXISTS round_history (
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 
--- Insert default config row if not exists
-INSERT INTO group_config (id) VALUES (1) ON CONFLICT DO NOTHING;
+-- id ကို တိတိကျကျ ရည်ညွှန်းထားပါတယ်
+INSERT INTO group_config (id) VALUES (1) ON CONFLICT (id) DO NOTHING;
 

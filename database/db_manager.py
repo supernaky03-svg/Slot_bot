@@ -1,5 +1,5 @@
 import asyncpg
-import os
+import logging
 from config import DATABASE_URL
 
 class DatabaseManager:
@@ -7,9 +7,25 @@ class DatabaseManager:
         self.pool = None
 
     async def connect(self):
-        self.pool = await asyncpg.create_pool(DATABASE_URL)
-        with open("database/schema.sql", "r") as f:
-            await self.pool.execute(f.read())
+        try:
+            logging.info("Initializing database connection...")
+            self.pool = await asyncpg.create_pool(
+                DATABASE_URL,
+                min_size=1,
+                max_size=10
+            )
+            
+            with open("database/schema.sql", "r") as f:
+                schema_sql = f.read()
+                
+            # Safely acquire a specific connection to run the schema
+            async with self.pool.acquire() as conn:
+                await conn.execute(schema_sql)
+                
+            logging.info("Database connected and schema verified.")
+        except Exception as e:
+            logging.error(f"CRITICAL Database Connection Error: {e}")
+            raise
 
     async def close(self):
         if self.pool:
@@ -30,7 +46,8 @@ class DatabaseManager:
         async with self.pool.acquire() as conn:
             row = await conn.fetchrow("SELECT * FROM users WHERE user_id = $1", user_id)
             if not row:
-                await conn.execute("INSERT INTO users (user_id) VALUES ($1) ON CONFLICT DO NOTHING", user_id)
+                # user_id ကို တိတိကျကျ ရည်ညွှန်းထားပါတယ်
+                await conn.execute("INSERT INTO users (user_id) VALUES ($1) ON CONFLICT (user_id) DO NOTHING", user_id)
                 row = await conn.fetchrow("SELECT * FROM users WHERE user_id = $1", user_id)
             return dict(row)
 
@@ -48,7 +65,6 @@ class DatabaseManager:
             await conn.execute("UPDATE users SET balance = 0")
 
     async def batch_update_users(self, user_data_list):
-        # user_data_list format: [(user_id, balance, highest_balance, bet_times, bet_amount), ...]
         async with self.pool.acquire() as conn:
             await conn.executemany("""
                 UPDATE users SET 
@@ -62,7 +78,6 @@ class DatabaseManager:
     async def add_history(self, group_id: int, result: str):
         async with self.pool.acquire() as conn:
             await conn.execute("INSERT INTO round_history (group_id, result) VALUES ($1, $2)", group_id, result)
-            # Keep only last 10
             await conn.execute("""
                 DELETE FROM round_history WHERE id NOT IN (
                     SELECT id FROM round_history WHERE group_id = $1 ORDER BY id DESC LIMIT 10
